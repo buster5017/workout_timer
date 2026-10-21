@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#121212">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>프로 인터벌 타이머</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ================= 1. 루틴 설정 화면 ================= -->
+  <div id="setup-view" class="view active">
+    <header class="app-header">
+      <h1>⚡ 인터벌 트레이너</h1>
+      <!-- 프리셋 관리 바 -->
+      <div class="preset-bar">
+        <select id="preset-select" title="저장된 루틴 선택"></select>
+        <button id="btn-load-preset" class="btn-sub">불러오기</button>
+        <button id="btn-save-preset" class="btn-sub primary">현재 루틴 저장</button>
+        <button id="btn-delete-preset" class="btn-sub danger">삭제</button>
+      </div>
+    </header>
+
+    <main class="setup-container">
+      <!-- 루틴 제목 -->
+      <div class="card">
+        <label class="section-label">훈련 제목</label>
+        <input type="text" id="workout-title" class="input-title" placeholder="예: 자전거 케이던스 훈련">
+      </div>
+
+      <!-- 준비 (Warm-up) -->
+      <div class="card single-stage-card">
+        <div class="stage-header">
+          <span class="stage-badge">준비 (Warm-up)</span>
+          <input type="color" id="warmup-color" class="color-picker" value="#2563eb" title="배경 색상 선택">
+        </div>
+        <div class="time-inputs">
+          <input type="number" id="warmup-min" min="0" max="180" value="10"> <span>분</span>
+          <input type="number" id="warmup-sec" min="0" max="59" value="0"> <span>초</span>
+        </div>
+      </div>
+
+      <!-- 본 훈련: 싸이클 & 세트 구성 -->
+      <div class="card cycle-card">
+        <div class="cycle-header">
+          <div>
+            <span class="section-label">본 훈련 반복 (Cycles)</span>
+            <p class="sub-desc">아래의 모든 세트를 묶어서 반복할 횟수</p>
+          </div>
+          <div class="stepper">
+            <button type="button" class="btn-step" onclick="changeCycle(-1)">-</button>
+            <span id="cycle-count">2</span><span>싸이클</span>
+            <button type="button" class="btn-step" onclick="changeCycle(1)">+</button>
+          </div>
+        </div>
+
+        <!-- 세트 리스트가 렌더링되는 영역 -->
+        <div id="sets-container"></div>
+
+        <button type="button" id="btn-add-set" class="btn-dashed">+ 새로운 세트 추가</button>
+      </div>
+
+      <!-- 쿨다운 (Cool-down) -->
+      <div class="card single-stage-card">
+        <div class="stage-header">
+          <span class="stage-badge">쿨다운 (Cool-down)</span>
+          <input type="color" id="cooldown-color" class="color-picker" value="#0d9488" title="배경 색상 선택">
+        </div>
+        <div class="time-inputs">
+          <input type="number" id="cooldown-min" min="0" max="180" value="10"> <span>분</span>
+          <input type="number" id="cooldown-sec" min="0" max="59" value="0"> <span>초</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- 하단 총 시간 요약 및 시작 버튼 고정 바 -->
+    <footer class="setup-footer">
+      <div class="total-summary">
+        <span>총 운동 시간</span>
+        <strong id="setup-total-time">32:00</strong>
+      </div>
+      <button id="btn-start-workout" class="btn-start">운동 시작 ▶</button>
+    </footer>
+  </div>
+
+  <!-- ================= 2. 타이머 실행 화면 ================= -->
+  <div id="runner-view" class="view">
+    <!-- 상단 진행 메타 정보 -->
+    <header class="runner-header">
+      <div id="runner-workout-title" class="runner-title">자전거 케이던스 훈련</div>
+      <div id="runner-phase-badge" class="runner-badge">준비 (1 / 26)</div>
+    </header>
+
+    <!-- 중앙 메인 컬러 오버랩 타이머 블록 -->
+    <div id="timer-block" class="timer-block">
+      <!-- 왼쪽에서 오른쪽으로 밀고 들어오는 다음 구간 색상 레이어 -->
+      <div id="timer-next-fill" class="timer-next-fill"></div>
+
+      <!-- 정중앙에 고정된 타이머 컨텐츠 -->
+      <div class="timer-center-content">
+        <div id="current-interval-name" class="current-name">준비</div>
+        <div id="current-time-left" class="current-time">10:00</div>
+        <div id="next-interval-preview" class="next-preview">다음: 케이던스 95 (00:20)</div>
+      </div>
+    </div>
+
+    <!-- 하단 전체 남은 시간 및 컨트롤러 -->
+    <footer class="runner-footer">
+      <div class="overall-progress-box">
+        <div class="overall-text">
+          <span>전체 진행률 (<span id="overall-step-text">1/26</span>)</span>
+          <span>남은 시간: <strong id="overall-time-left">32:00</strong></span>
+        </div>
+        <div class="overall-bar-bg">
+          <div id="overall-bar-fill" class="overall-bar-fill"></div>
+        </div>
+      </div>
+
+      <div class="control-buttons">
+        <button id="btn-prev" class="btn-ctrl" title="이전 구간">⏮ 이전</button>
+        <button id="btn-pause" class="btn-ctrl play-pause">⏸ 일시정지</button>
+        <button id="btn-next" class="btn-ctrl" title="다음 구간">다음 ⏭</button>
+        <button id="btn-stop" class="btn-ctrl stop" title="운동 종료">⏹ 종료</button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
