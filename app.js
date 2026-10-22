@@ -456,7 +456,7 @@ function onTimerTick() {
       } else if (remainingSec === 60) {
         speakTTS("1분");
       } else if (remainingSec === 10) {
-        speakTTS("10");
+        speakTTS("10초");
       } else if (remainingSec <= 5 && remainingSec >= 1) {
         playBeep(880, 110); // 5, 4, 3, 2, 1초 짧은 비프음
       }
