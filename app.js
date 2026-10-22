@@ -324,33 +324,53 @@ function releaseWakeLock() {
   }
 }
 
-// 비프음 발생기 (5초~1초 카운트다운용)
-function playBeep(freq = 880, durationMs = 120) {
+// 비프음 발생기 (유튜브 음악을 뚫고 나오는 고출력 스포츠 타이머 사운드)
+function playBeep(freq = 1200, durationMs = 180, type = "triangle") {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
 
-  const osc = audioCtx.createOscillator();
+  const now = audioCtx.currentTime;
+
+  // 2개의 오실레이터를 겹쳐서 소리를 두껍고 선명하게 만듦
+  const osc1 = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
 
-  gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
+  osc1.type = type;
+  osc2.type = "square"; // 음악 소리를 뚫고 나오는 배음 추가
 
-  osc.connect(gain);
+  osc1.frequency.setValueAtTime(freq, now);
+  osc2.frequency.setValueAtTime(freq * 1.5, now); // 5도 화음 고주파 보강
+
+  // 볼륨을 기존 0.35 -> 1.0(최대치)으로 대폭 증폭
+  gain.gain.setValueAtTime(1.0, now);
+  gain.gain.exponentialRampToValueAtTime(0.01, now + durationMs / 1000);
+
+  osc1.connect(gain);
+  osc2.connect(gain);
   gain.connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + durationMs / 1000);
+
+  osc1.start(now);
+  osc2.start(now);
+  osc1.stop(now + durationMs / 1000);
+  osc2.stop(now + durationMs / 1000);
+
+  // 스마트폰 진동 동시 작동 (갤럭시 A16 지원)
+  if ("vibrate" in navigator) {
+    navigator.vibrate(100);
+  }
 }
 
-// 한국어 TTS 음성 안내
+// 한국어 TTS 음성 안내 (사전 비프음 제거 + 최대 볼륨 적용)
 function speakTTS(text) {
   if (!("speechSynthesis" in window)) return;
+
   window.speechSynthesis.cancel(); // 이전 음성 겹침 방지
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "ko-KR";
-  utter.rate = 1.15; // 운동 중 명확하게 들리도록 약간 경쾌한 속도
-  utter.pitch = 1.0;
+  utter.volume = 1.0; // 최대 볼륨 강제 지정
+  utter.rate = 1.05;  // 음악 속에서도 정확히 들리도록 정석 속도로 조정
+  utter.pitch = 1.1;  // 저음역대 배경음악과 겹치지 않게 목소리 톤을 살짝 높임
   window.speechSynthesis.speak(utter);
 }
 
