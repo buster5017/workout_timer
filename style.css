@@ -465,11 +465,3 @@ body {
 
 .btn-ctrl.play-pause { background: #3b82f6; }
 .btn-ctrl.stop { background: #dc2626; }
-
-/* 볼륨 조절 바 스타일 보완 */
-.volume-control-box input[type="range"] {
-  height: 6px;
-  background: #27272a;
-  border-radius: 999px;
-  outline: none;
-}
