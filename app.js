@@ -9,7 +9,7 @@ const DEFAULT_WORKOUT = {
       intervals: [
         { name: "케이던스 95", duration: 20, color: "#f59e0b" },
         { name: "케이던스 100", duration: 20, color: "#ea580c" },
-        { name: "케이던s 105", duration: 20, color: "#dc2626" },
+        { name: "케이던스 105", duration: 20, color: "#dc2626" },
         { name: "회복", duration: 60, color: "#16a34a" }
       ]
     },
@@ -80,6 +80,7 @@ function saveLastConfig() {
 
 function updatePresetSelect() {
   const select = document.getElementById("preset-select");
+  if (!select) return;
   select.innerHTML = "";
   Object.keys(presets).forEach(title => {
     const opt = document.createElement("option");
@@ -91,7 +92,10 @@ function updatePresetSelect() {
 }
 
 function renderSetupUI() {
-  document.getElementById("workout-title").value = currentConfig.title || "";
+  const titleInput = document.getElementById("workout-title");
+  if (!titleInput) return;
+
+  titleInput.value = currentConfig.title || "";
   document.getElementById("warmup-min").value = Math.floor(currentConfig.warmup.duration / 60);
   document.getElementById("warmup-sec").value = currentConfig.warmup.duration % 60;
   document.getElementById("warmup-color").value = currentConfig.warmup.color || "#2563eb";
@@ -146,7 +150,10 @@ function renderSetupUI() {
 }
 
 function syncUIFromDOM() {
-  currentConfig.title = document.getElementById("workout-title").value.trim() || "나의 운동 루틴";
+  const titleInput = document.getElementById("workout-title");
+  if (!titleInput) return;
+
+  currentConfig.title = titleInput.value.trim() || "나의 운동 루틴";
   const wMin = parseInt(document.getElementById("warmup-min").value) || 0;
   const wSec = parseInt(document.getElementById("warmup-sec").value) || 0;
   currentConfig.warmup.duration = wMin * 60 + wSec;
@@ -218,7 +225,8 @@ window.removeSet = function(sIdx) {
 function updateTotalDurationPreview() {
   const queue = buildExecutionQueue(currentConfig);
   const totalSec = queue.reduce((acc, cur) => acc + cur.duration, 0);
-  document.getElementById("setup-total-time").textContent = formatTime(totalSec);
+  const totalTimeEl = document.getElementById("setup-total-time");
+  if (totalTimeEl) totalTimeEl.textContent = formatTime(totalSec);
 }
 
 function buildExecutionQueue(cfg) {
@@ -310,7 +318,6 @@ function startSilentAudioAndWakeLock() {
     }).catch(() => {});
   }
 
-  // TTS 수면 방지 주기적 깨우기 타이머 가동
   if (ttsKeepAliveTimer) clearInterval(ttsKeepAliveTimer);
   ttsKeepAliveTimer = setInterval(() => {
     if (isRunning && !isPaused && "speechSynthesis" in window) {
@@ -339,7 +346,8 @@ function playBeep(freq = 1100, durationMs = 200) {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
 
-  const masterVol = parseFloat(document.getElementById("master-volume").value) || 0.8;
+  const volumeEl = document.getElementById("master-volume");
+  const masterVol = volumeEl ? parseFloat(volumeEl.value) : 0.8;
   const currentGain = masterVol * BEEP_MAX_GAIN;
 
   const now = audioCtx.currentTime;
@@ -374,14 +382,15 @@ function playBeep(freq = 1100, durationMs = 200) {
 function speakTTS(text) {
   if (!("speechSynthesis" in window)) return;
 
-  const masterVol = parseFloat(document.getElementById("master-volume").value) || 0.8;
+  const volumeEl = document.getElementById("master-volume");
+  const masterVol = volumeEl ? parseFloat(volumeEl.value) : 0.8;
 
   window.speechSynthesis.resume();
   window.speechSynthesis.cancel();
 
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "ko-KR";
-  utter.volume = masterVol; // 마스터 볼륨과 직접 연동 (0.0 ~ 1.0)
+  utter.volume = masterVol;
   utter.rate = 1.05;
   utter.pitch = 1.1;
   window.speechSynthesis.speak(utter);
@@ -519,113 +528,144 @@ function completeWorkout() {
 
 function bindEvents() {
   ["workout-title", "warmup-min", "warmup-sec", "warmup-color", "cooldown-min", "cooldown-sec", "cooldown-color"].forEach(id => {
-    document.getElementById(id).addEventListener("input", saveLastConfig);
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", saveLastConfig);
   });
 
-  document.getElementById("btn-add-set").addEventListener("click", () => {
-    syncUIFromDOM();
-    currentConfig.sets.push({
-      rounds: 1,
-      intervals: [
-        { name: "인터벌", duration: 30, color: "#ea580c" },
-        { name: "회복", duration: 60, color: "#16a34a" }
-      ]
+  const addSetBtn = document.getElementById("btn-add-set");
+  if (addSetBtn) {
+    addSetBtn.addEventListener("click", () => {
+      syncUIFromDOM();
+      currentConfig.sets.push({
+        rounds: 1,
+        intervals: [
+          { name: "인터벌", duration: 30, color: "#ea580c" },
+          { name: "회복", duration: 60, color: "#16a34a" }
+        ]
+      });
+      renderSetupUI();
+      saveLastConfig();
     });
-    renderSetupUI();
-    saveLastConfig();
-  });
+  }
 
-  document.getElementById("btn-save-preset").addEventListener("click", () => {
-    syncUIFromDOM();
-    const title = currentConfig.title.trim();
-    if (!title) return alert("훈련 제목을 입력해주세요.");
-    presets[title] = JSON.parse(JSON.stringify(currentConfig));
-    localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
-    updatePresetSelect();
-    alert(`'${title}' 루틴이 저장되었습니다.`);
-  });
-
-  document.getElementById("btn-load-preset").addEventListener("click", () => {
-    const selectedTitle = document.getElementById("preset-select").value;
-    if (presets[selectedTitle]) {
-      currentConfig = JSON.parse(JSON.stringify(presets[selectedTitle]));
-      localStorage.setItem("workout_last_config_v1", JSON.stringify(currentConfig));
-      renderSetupUI();
-    }
-  });
-
-  document.getElementById("btn-delete-preset").addEventListener("click", () => {
-    const selectedTitle = document.getElementById("preset-select").value;
-    if (Object.keys(presets).length <= 1) {
-      return alert("최소 1개의 프리셋은 남겨두어야 합니다.");
-    }
-    if (confirm(`'${selectedTitle}' 루틴을 삭제하시겠습니까?`)) {
-      delete presets[selectedTitle];
+  const savePresetBtn = document.getElementById("btn-save-preset");
+  if (savePresetBtn) {
+    savePresetBtn.addEventListener("click", () => {
+      syncUIFromDOM();
+      const title = currentConfig.title.trim();
+      if (!title) return alert("훈련 제목을 입력해주세요.");
+      presets[title] = JSON.parse(JSON.stringify(currentConfig));
       localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
-      const firstKey = Object.keys(presets)[0];
-      currentConfig = JSON.parse(JSON.stringify(presets[firstKey]));
       updatePresetSelect();
-      renderSetupUI();
-    }
-  });
+      alert(`'${title}' 루틴이 저장되었습니다.`);
+    });
+  }
 
-  document.getElementById("btn-start-workout").addEventListener("click", startWorkout);
+  const loadPresetBtn = document.getElementById("btn-load-preset");
+  if (loadPresetBtn) {
+    loadPresetBtn.addEventListener("click", () => {
+      const selectedTitle = document.getElementById("preset-select").value;
+      if (presets[selectedTitle]) {
+        currentConfig = JSON.parse(JSON.stringify(presets[selectedTitle]));
+        localStorage.setItem("workout_last_config_v1", JSON.stringify(currentConfig));
+        renderSetupUI();
+      }
+    });
+  }
 
-  document.getElementById("btn-pause").addEventListener("click", () => {
-    if (!isRunning) return;
-    const btn = document.getElementById("btn-pause");
-    if (!isPaused) {
-      isPaused = true;
-      stepRemainingMs = Math.max(0, stepEndTime - Date.now());
-      window.speechSynthesis.cancel();
-      btn.textContent = "▶ 재개";
-    } else {
+  const deletePresetBtn = document.getElementById("btn-delete-preset");
+  if (deletePresetBtn) {
+    deletePresetBtn.addEventListener("click", () => {
+      const selectedTitle = document.getElementById("preset-select").value;
+      if (Object.keys(presets).length <= 1) {
+        return alert("최소 1개의 프리셋은 남겨두어야 합니다.");
+      }
+      if (confirm(`'${selectedTitle}' 루틴을 삭제하시겠습니까?`)) {
+        delete presets[selectedTitle];
+        localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
+        const firstKey = Object.keys(presets)[0];
+        currentConfig = JSON.parse(JSON.stringify(presets[firstKey]));
+        updatePresetSelect();
+        renderSetupUI();
+      }
+    });
+  }
+
+  const startWorkoutBtn = document.getElementById("btn-start-workout");
+  if (startWorkoutBtn) startWorkoutBtn.addEventListener("click", startWorkout);
+
+  const pauseBtn = document.getElementById("btn-pause");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (!isRunning) return;
+      if (!isPaused) {
+        isPaused = true;
+        stepRemainingMs = Math.max(0, stepEndTime - Date.now());
+        window.speechSynthesis.cancel();
+        pauseBtn.textContent = "▶ 재개";
+      } else {
+        isPaused = false;
+        stepEndTime = Date.now() + stepRemainingMs;
+        pauseBtn.textContent = "⏸ 일시정지";
+      }
+    });
+  }
+
+  const prevBtn = document.getElementById("btn-prev");
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => {
+      if (!isRunning) return;
       isPaused = false;
-      stepEndTime = Date.now() + stepRemainingMs;
-      btn.textContent = "⏸ 일시정지";
-    }
-  });
+      if (pauseBtn) pauseBtn.textContent = "⏸ 일시정지";
+      startStep(Math.max(0, currentStepIndex - 1));
+    });
+  }
 
-  document.getElementById("btn-prev").addEventListener("click", () => {
-    if (!isRunning) return;
-    isPaused = false;
-    document.getElementById("btn-pause").textContent = "⏸ 일시정지";
-    startStep(Math.max(0, currentStepIndex - 1));
-  });
+  const nextBtn = document.getElementById("btn-next");
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      if (!isRunning) return;
+      isPaused = false;
+      if (pauseBtn) pauseBtn.textContent = "⏸ 일시정지";
+      startStep(currentStepIndex + 1);
+    });
+  }
 
-  document.getElementById("btn-next").addEventListener("click", () => {
-    if (!isRunning) return;
-    isPaused = false;
-    document.getElementById("btn-pause").textContent = "⏸ 일시정지";
-    startStep(currentStepIndex + 1);
-  });
-
-  document.getElementById("btn-stop").addEventListener("click", () => {
-    isRunning = false;
-    isPaused = false;
-    workerTimer.postMessage("stop");
-    window.speechSynthesis.cancel();
-    releaseWakeLock();
-    document.getElementById("runner-view").classList.remove("active");
-    document.getElementById("setup-view").classList.add("active");
-  });
+  const stopBtn = document.getElementById("btn-stop");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      isRunning = false;
+      isPaused = false;
+      workerTimer.postMessage("stop");
+      window.speechSynthesis.cancel();
+      releaseWakeLock();
+      document.getElementById("runner-view").classList.remove("active");
+      document.getElementById("setup-view").classList.add("active");
+    });
+  }
 
   // 블랙 스크린 잠금 모드 이벤트 바인딩
   const lockOverlay = document.getElementById("screen-lock-overlay");
-  document.getElementById("btn-lock-screen").addEventListener("click", () => {
-    lockOverlay.style.display = "flex";
-  });
+  const lockBtn = document.getElementById("btn-lock-screen");
+  if (lockBtn && lockOverlay) {
+    lockBtn.addEventListener("click", () => {
+      lockOverlay.style.display = "flex";
+    });
+  }
 
   // 자물쇠 아이콘 더블 탭 해제 로직
   let lastUnlockTap = 0;
-  document.getElementById("lock-unlock-btn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    const now = Date.now();
-    if (now - lastUnlockTap < 350) {
-      lockOverlay.style.display = "none"; // 더블 탭 성공 시 잠금 해제
-    }
-    lastUnlockTap = now;
-  });
+  const unlockBtn = document.getElementById("lock-unlock-btn");
+  if (unlockBtn && lockOverlay) {
+    unlockBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastUnlockTap < 350) {
+        lockOverlay.style.display = "none";
+      }
+      lastUnlockTap = now;
+    });
+  }
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && isRunning) {
