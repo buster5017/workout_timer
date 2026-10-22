@@ -325,22 +325,35 @@ function releaseWakeLock() {
 }
 
 // 비프음 발생기 (5초~1초 카운트다운용)
-function playBeep(freq = 880, durationMs = 120) {
+// 비프음 발생기 (1100Hz 체육관/스포츠 부저 톤)
+function playBeep(freq = 1100, durationMs = 180) {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
 
+  const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
+  const filter = audioCtx.createBiquadFilter();
   const gain = audioCtx.createGain();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
 
-  gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(freq, now);
 
-  osc.connect(gain);
+  // 찌르는 쇳소리를 깎아 부드럽고 단단하게 만드는 필터
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(2200, now);
+
+  // 뚝 끊기지 않고 0.18초 동안 꽉 찬 소리로 울리게 조절
+  gain.gain.setValueAtTime(0.01, now);
+  gain.gain.linearRampToValueAtTime(0.35, now + 0.015);
+  gain.gain.setValueAtTime(0.35, now + 0.14);
+  gain.gain.linearRampToValueAtTime(0.001, now + (durationMs / 1000));
+
+  osc.connect(filter);
+  filter.connect(gain);
   gain.connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + durationMs / 1000);
+
+  osc.start(now);
+  osc.stop(now + (durationMs / 1000));
 }
 
 // 한국어 TTS 음성 안내
@@ -456,9 +469,9 @@ function onTimerTick() {
       } else if (remainingSec === 60) {
         speakTTS("1분");
       } else if (remainingSec === 10) {
-        speakTTS("10초");
+        speakTTS("10");
       } else if (remainingSec <= 5 && remainingSec >= 1) {
-        playBeep(880, 110); // 5, 4, 3, 2, 1초 짧은 비프음
+        playBeep(1100, 180); // 5, 4, 3, 2, 1초 짧은 비프음
       }
     }
   }
