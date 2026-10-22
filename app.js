@@ -1,7 +1,7 @@
 // ================= 1. 기본 샘플 데이터 (자전거 케이던스 훈련 32분) =================
 const DEFAULT_WORKOUT = {
   title: "자전거 케이던스 훈련",
-  warmup: { duration: 600, color: "#2563eb" }, // 10분 (파랑)
+  warmup: { duration: 600, color: "#2563eb" },
   cycles: 2,
   sets: [
     {
@@ -23,16 +23,14 @@ const DEFAULT_WORKOUT = {
       ]
     }
   ],
-  cooldown: { duration: 600, color: "#0d9488" } // 10분 (청록)
+  cooldown: { duration: 600, color: "#0d9488" }
 };
 
-// 상태 관리 변수
 let currentConfig = null;
 let presets = {};
 let executionQueue = [];
 let currentStepIndex = 0;
 
-// 정밀 타이머 변수 (절대 시각 기준)
 let isRunning = false;
 let isPaused = false;
 let stepEndTime = 0;
@@ -40,11 +38,14 @@ let stepRemainingMs = 0;
 let lastAnnouncedSec = -1;
 let workerTimer = null;
 
-// 오디오 & 화면켜짐 유지 변수
 let audioCtx = null;
 let wakeLock = null;
+let keepAwakeVideo = null;
+let ttsKeepAliveTimer = null;
 
-// ================= 2. 초기화 및 로컬 스토리지 연동 =================
+// 볼륨 기준값 상수 (마스터 슬라이더와 연동)
+const BEEP_MAX_GAIN = 0.4; // TTS가 1.0일 때 비프음의 최대 비율
+
 window.addEventListener("DOMContentLoaded", () => {
   loadStorage();
   renderSetupUI();
@@ -79,6 +80,7 @@ function saveLastConfig() {
 
 function updatePresetSelect() {
   const select = document.getElementById("preset-select");
+  if (!select) return;
   select.innerHTML = "";
   Object.keys(presets).forEach(title => {
     const opt = document.createElement("option");
@@ -89,11 +91,11 @@ function updatePresetSelect() {
   });
 }
 
-// ================= 3. 설정 화면 렌더링 및 조작 =================
 function renderSetupUI() {
-  document.getElementById("workout-title").value = currentConfig.title || "";
+  const titleInput = document.getElementById("workout-title");
+  if (!titleInput) return;
 
-  // 준비 & 쿨다운
+  titleInput.value = currentConfig.title || "";
   document.getElementById("warmup-min").value = Math.floor(currentConfig.warmup.duration / 60);
   document.getElementById("warmup-sec").value = currentConfig.warmup.duration % 60;
   document.getElementById("warmup-color").value = currentConfig.warmup.color || "#2563eb";
@@ -104,7 +106,6 @@ function renderSetupUI() {
 
   document.getElementById("cycle-count").textContent = currentConfig.cycles;
 
-  // 세트 렌더링
   const container = document.getElementById("sets-container");
   container.innerHTML = "";
 
@@ -149,8 +150,10 @@ function renderSetupUI() {
 }
 
 function syncUIFromDOM() {
-  currentConfig.title = document.getElementById("workout-title").value.trim() || "나의 운동 루틴";
+  const titleInput = document.getElementById("workout-title");
+  if (!titleInput) return;
 
+  currentConfig.title = titleInput.value.trim() || "나의 운동 루틴";
   const wMin = parseInt(document.getElementById("warmup-min").value) || 0;
   const wSec = parseInt(document.getElementById("warmup-sec").value) || 0;
   currentConfig.warmup.duration = wMin * 60 + wSec;
@@ -222,57 +225,33 @@ window.removeSet = function(sIdx) {
 function updateTotalDurationPreview() {
   const queue = buildExecutionQueue(currentConfig);
   const totalSec = queue.reduce((acc, cur) => acc + cur.duration, 0);
-  document.getElementById("setup-total-time").textContent = formatTime(totalSec);
+  const totalTimeEl = document.getElementById("setup-total-time");
+  if (totalTimeEl) totalTimeEl.textContent = formatTime(totalSec);
 }
 
-// ================= 4. 실행 큐(1열 대본) 평탄화 생성 =================
 function buildExecutionQueue(cfg) {
   const queue = [];
-
-  // 1) 준비
   if (cfg.warmup.duration > 0) {
-    queue.push({
-      name: "준비",
-      duration: cfg.warmup.duration,
-      color: cfg.warmup.color,
-      badge: "준비 (Warm-up)"
-    });
+    queue.push({ name: "준비", duration: cfg.warmup.duration, color: cfg.warmup.color, badge: "준비 (Warm-up)" });
   }
-
-  // 2) 싸이클 -> 세트 -> 라운드 -> 인터벌 중첩 전개
   for (let c = 1; c <= cfg.cycles; c++) {
     cfg.sets.forEach((setItem, sIdx) => {
       for (let r = 1; r <= setItem.rounds; r++) {
         setItem.intervals.forEach(intv => {
           if (intv.duration > 0) {
-            queue.push({
-              name: intv.name,
-              duration: intv.duration,
-              color: intv.color,
-              badge: `싸이클 ${c}/${cfg.cycles} · 세트 ${sIdx + 1} · 라운드 ${r}/${setItem.rounds}`
-            });
+            queue.push({ name: intv.name, duration: intv.duration, color: intv.color, badge: `싸이클 ${c}/${cfg.cycles} · 세트 ${sIdx + 1} · 라운드 ${r}/${setItem.rounds}` });
           }
         });
       }
     });
   }
-
-  // 3) 쿨다운
   if (cfg.cooldown.duration > 0) {
-    queue.push({
-      name: "쿨다운",
-      duration: cfg.cooldown.duration,
-      color: cfg.cooldown.color,
-      badge: "쿨다운 (Cool-down)"
-    });
+    queue.push({ name: "쿨다운", duration: cfg.cooldown.duration, color: cfg.cooldown.color, badge: "쿨다운 (Cool-down)" });
   }
-
   return queue;
 }
 
-// ================= 5. 백그라운드 유지 & 오디오/TTS 엔진 =================
 function initWebWorker() {
-  // 백그라운드에서도 스로틀링 없이 100ms마다 틱을 발생시키는 인라인 Web Worker
   const blob = new Blob([`
     let timer = null;
     self.onmessage = function(e) {
@@ -292,69 +271,131 @@ function initWebWorker() {
   };
 }
 
+function initKeepAwakeVideo() {
+  if (keepAwakeVideo) return;
+  keepAwakeVideo = document.createElement("video");
+  keepAwakeVideo.setAttribute("playsinline", "");
+  keepAwakeVideo.setAttribute("muted", "");
+  keepAwakeVideo.setAttribute("loop", "");
+  keepAwakeVideo.muted = true;
+  keepAwakeVideo.style.position = "fixed";
+  keepAwakeVideo.style.top = "-10px";
+  keepAwakeVideo.style.left = "-10px";
+  keepAwakeVideo.style.width = "1px";
+  keepAwakeVideo.style.height = "1px";
+  keepAwakeVideo.style.opacity = "0.01";
+  keepAwakeVideo.style.pointerEvents = "none";
+  keepAwakeVideo.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAu1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE0OCByMjc5NSA2YThhOWI2IC0gSC4yNjQvTVBFRy00 AVCIGNvZGVjIC0gQ29weXJpZ2h0IDIwMDMtMjAxNyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwcyk9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfHlyaW1pZD0yIGJfYWRhcHQ9MS bi_m_ia=0";
+  document.body.appendChild(keepAwakeVideo);
+}
+
 function startSilentAudioAndWakeLock() {
-  // 1) Web Audio API 초기화 및 무음 오실레이터 지속 실행 (백그라운드 슬립 방지)
-  if (!audioCtx) {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    audioCtx = new AudioContext();
-  }
-  if (audioCtx.state === "suspended") {
-    audioCtx.resume();
-  }
+  try {
+    if (!audioCtx) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.0001;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+  } catch (e) {}
 
-  // 무음 스트림 유지
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  gain.gain.value = 0.0001; // 사람 귀에 들리지 않는 극미세 출력
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start();
+  try {
+    initKeepAwakeVideo();
+    keepAwakeVideo.play();
+  } catch (e) {}
 
-  // 2) 화면 켜짐 유지 (Wake Lock)
   if ("wakeLock" in navigator) {
     navigator.wakeLock.request("screen").then(lock => {
       wakeLock = lock;
     }).catch(() => {});
   }
+
+  if (ttsKeepAliveTimer) clearInterval(ttsKeepAliveTimer);
+  ttsKeepAliveTimer = setInterval(() => {
+    if (isRunning && !isPaused && "speechSynthesis" in window) {
+      const silentUtter = new SpeechSynthesisUtterance("");
+      silentUtter.volume = 0;
+      window.speechSynthesis.speak(silentUtter);
+    }
+  }, 12000);
 }
 
 function releaseWakeLock() {
   if (wakeLock !== null) {
     wakeLock.release().then(() => { wakeLock = null; }).catch(() => {});
   }
+  if (keepAwakeVideo) {
+    keepAwakeVideo.pause();
+  }
+  if (ttsKeepAliveTimer) {
+    clearInterval(ttsKeepAliveTimer);
+    ttsKeepAliveTimer = null;
+  }
 }
 
-// 비프음 발생기 (5초~1초 카운트다운용)
-function playBeep(freq = 880, durationMs = 120) {
+// 1100Hz 중고음 부저 비프음 (볼륨 슬라이더 연동)
+function playBeep(freq = 1100, durationMs = 200) {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
 
+  const volumeEl = document.getElementById("master-volume");
+  const masterVol = volumeEl ? parseFloat(volumeEl.value) : 0.8;
+  const currentGain = masterVol * BEEP_MAX_GAIN;
+
+  const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
+  const filter = audioCtx.createBiquadFilter();
   const gain = audioCtx.createGain();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
 
-  gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(freq, now);
 
-  osc.connect(gain);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(2200, now);
+
+  gain.gain.setValueAtTime(0.01, now);
+  gain.gain.linearRampToValueAtTime(currentGain, now + 0.015);
+  gain.gain.setValueAtTime(currentGain, now + 0.15);
+  gain.gain.linearRampToValueAtTime(0.001, now + (durationMs / 1000));
+
+  osc.connect(filter);
+  filter.connect(gain);
   gain.connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + durationMs / 1000);
+
+  osc.start(now);
+  osc.stop(now + (durationMs / 1000));
+
+  if ("vibrate" in navigator) {
+    navigator.vibrate(100);
+  }
 }
 
-// 한국어 TTS 음성 안내
+// 한국어 TTS (마스터 볼륨 연동 및 수면 방지 처리)
 function speakTTS(text) {
   if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel(); // 이전 음성 겹침 방지
+
+  const volumeEl = document.getElementById("master-volume");
+  const masterVol = volumeEl ? parseFloat(volumeEl.value) : 0.8;
+
+  window.speechSynthesis.resume();
+  window.speechSynthesis.cancel();
+
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "ko-KR";
-  utter.rate = 1.15; // 운동 중 명확하게 들리도록 약간 경쾌한 속도
-  utter.pitch = 1.0;
+  utter.volume = masterVol;
+  utter.rate = 1.05;
+  utter.pitch = 1.1;
   window.speechSynthesis.speak(utter);
 }
 
-// ================= 6. 타이머 실행 및 좌->우 색상 오버랩 제어 =================
 function startWorkout() {
   syncUIFromDOM();
   saveLastConfig();
@@ -390,36 +431,28 @@ function startStep(index) {
   const currentStep = executionQueue[currentStepIndex];
   const nextStep = executionQueue[currentStepIndex + 1] || null;
 
-  // 절대 종료 시각 설정
   const durationMs = currentStep.duration * 1000;
   stepEndTime = Date.now() + durationMs;
   stepRemainingMs = durationMs;
-  lastAnnouncedSec = currentStep.duration; // 시작 시점 초 기록 (중복 멘트 방지)
+  lastAnnouncedSec = currentStep.duration;
 
-  // 1) 중앙 타이머 텍스트 재설정 및 색상 레이어 세팅
   const timerBlock = document.getElementById("timer-block");
   const nextFill = document.getElementById("timer-next-fill");
 
-  // 현재 구간 배경색 지정
   timerBlock.style.backgroundColor = currentStep.color;
-
-  // 다음 구간 색상 지정 (마지막 구간인 경우 완료 색상인 어두운 골드/다크블루로 설정)
   nextFill.style.backgroundColor = nextStep ? nextStep.color : "#1e293b";
   nextFill.style.transform = "scaleX(0)";
 
-  // 중앙 고정 텍스트 업데이트
   document.getElementById("runner-phase-badge").textContent = currentStep.badge;
   document.getElementById("current-interval-name").textContent = currentStep.name;
   document.getElementById("current-time-left").textContent = formatTime(currentStep.duration);
 
   if (nextStep) {
-    document.getElementById("next-interval-preview").textContent =
-      `다음: ${nextStep.name} (${formatTime(nextStep.duration)})`;
+    document.getElementById("next-interval-preview").textContent = `다음: ${nextStep.name} (${formatTime(nextStep.duration)})`;
   } else {
     document.getElementById("next-interval-preview").textContent = `다음: 운동 완료 🎉`;
   }
 
-  // 시작 즉시 현재 구간 이름 TTS 안내
   speakTTS(currentStep.name);
   updateOverallProgressUI(currentStep.duration);
 }
@@ -432,16 +465,13 @@ function onTimerTick() {
   const totalStepMs = currentStep.duration * 1000;
 
   if (stepRemainingMs <= 0) {
-    // 현재 구간 종료 -> 즉시 다음 구간으로 전환 (중앙 타이머 재설정)
     startStep(currentStepIndex + 1);
     return;
   }
 
-  // 1) 왼쪽 -> 오른쪽 색상 차오름 비율 계산 (0.0 ~ 1.0)
   const elapsedRatio = Math.min(1, Math.max(0, (totalStepMs - stepRemainingMs) / totalStepMs));
   document.getElementById("timer-next-fill").style.transform = `scaleX(${elapsedRatio})`;
 
-  // 2) 남은 초 계산 (올림 처리하여 00:01까지 명확히 표시)
   const remainingSec = Math.ceil(stepRemainingMs / 1000);
 
   if (remainingSec !== lastAnnouncedSec) {
@@ -449,7 +479,6 @@ function onTimerTick() {
     document.getElementById("current-time-left").textContent = formatTime(remainingSec);
     updateOverallProgressUI(remainingSec);
 
-    // 3) TTS 및 비프음 트리거 (시작 시점과 겹치지 않을 때만 작동)
     if (remainingSec < currentStep.duration) {
       if (remainingSec === 300) {
         speakTTS("5분");
@@ -458,7 +487,7 @@ function onTimerTick() {
       } else if (remainingSec === 10) {
         speakTTS("10초");
       } else if (remainingSec <= 5 && remainingSec >= 1) {
-        playBeep(880, 110); // 5, 4, 3, 2, 1초 짧은 비프음
+        playBeep(1100, 180);
       }
     }
   }
@@ -478,7 +507,7 @@ function updateOverallProgressUI(currentStepRemSec) {
   const progressPercent = ((totalSec - remainingTotalSec) / totalSec) * 100;
   document.getElementById("overall-step-text").textContent = `${currentStepIndex + 1}/${executionQueue.length}`;
   document.getElementById("overall-time-left").textContent = formatTime(remainingTotalSec);
-  document.getElementById("overall-bar-fill").style.width = `${progressPercent}%`;
+  document.getElementById("overall-bar-fill").style.width = `${progressPercent%}`;
 }
 
 function completeWorkout() {
@@ -492,116 +521,152 @@ function completeWorkout() {
   document.getElementById("overall-time-left").textContent = "00:00";
   document.getElementById("overall-bar-fill").style.width = "100%";
 
-  playBeep(1046.5, 350);
+  playBeep(1320, 350);
   speakTTS("운동 완료");
   releaseWakeLock();
 }
 
-// ================= 7. 버튼 이벤트 바인딩 =================
 function bindEvents() {
-  // 설정 값 변경 시 실시간 저장
   ["workout-title", "warmup-min", "warmup-sec", "warmup-color", "cooldown-min", "cooldown-sec", "cooldown-color"].forEach(id => {
-    document.getElementById(id).addEventListener("input", saveLastConfig);
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", saveLastConfig);
   });
 
-  // 세트 추가
-  document.getElementById("btn-add-set").addEventListener("click", () => {
-    syncUIFromDOM();
-    currentConfig.sets.push({
-      rounds: 1,
-      intervals: [
-        { name: "인터벌", duration: 30, color: "#ea580c" },
-        { name: "회복", duration: 60, color: "#16a34a" }
-      ]
+  const addSetBtn = document.getElementById("btn-add-set");
+  if (addSetBtn) {
+    addSetBtn.addEventListener("click", () => {
+      syncUIFromDOM();
+      currentConfig.sets.push({
+        rounds: 1,
+        intervals: [
+          { name: "인터벌", duration: 30, color: "#ea580c" },
+          { name: "회복", duration: 60, color: "#16a34a" }
+        ]
+      });
+      renderSetupUI();
+      saveLastConfig();
     });
-    renderSetupUI();
-    saveLastConfig();
-  });
+  }
 
-  // 프리셋 저장
-  document.getElementById("btn-save-preset").addEventListener("click", () => {
-    syncUIFromDOM();
-    const title = currentConfig.title.trim();
-    if (!title) return alert("훈련 제목을 입력해주세요.");
-    presets[title] = JSON.parse(JSON.stringify(currentConfig));
-    localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
-    updatePresetSelect();
-    alert(`'${title}' 루틴이 저장되었습니다.`);
-  });
-
-  // 프리셋 불러오기
-  document.getElementById("btn-load-preset").addEventListener("click", () => {
-    const selectedTitle = document.getElementById("preset-select").value;
-    if (presets[selectedTitle]) {
-      currentConfig = JSON.parse(JSON.stringify(presets[selectedTitle]));
-      localStorage.setItem("workout_last_config_v1", JSON.stringify(currentConfig));
-      renderSetupUI();
-    }
-  });
-
-  // 프리셋 삭제
-  document.getElementById("btn-delete-preset").addEventListener("click", () => {
-    const selectedTitle = document.getElementById("preset-select").value;
-    if (Object.keys(presets).length <= 1) {
-      return alert("최소 1개의 프리셋은 남겨두어야 합니다.");
-    }
-    if (confirm(`'${selectedTitle}' 루틴을 삭제하시겠습니까?`)) {
-      delete presets[selectedTitle];
+  const savePresetBtn = document.getElementById("btn-save-preset");
+  if (savePresetBtn) {
+    savePresetBtn.addEventListener("click", () => {
+      syncUIFromDOM();
+      const title = currentConfig.title.trim();
+      if (!title) return alert("훈련 제목을 입력해주세요.");
+      presets[title] = JSON.parse(JSON.stringify(currentConfig));
       localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
-      const firstKey = Object.keys(presets)[0];
-      currentConfig = JSON.parse(JSON.stringify(presets[firstKey]));
       updatePresetSelect();
-      renderSetupUI();
-    }
-  });
+      alert(`'${title}' 루틴이 저장되었습니다.`);
+    });
+  }
 
-  // 운동 시작
-  document.getElementById("btn-start-workout").addEventListener("click", startWorkout);
+  const loadPresetBtn = document.getElementById("btn-load-preset");
+  if (loadPresetBtn) {
+    loadPresetBtn.addEventListener("click", () => {
+      const selectedTitle = document.getElementById("preset-select").value;
+      if (presets[selectedTitle]) {
+        currentConfig = JSON.parse(JSON.stringify(presets[selectedTitle]));
+        localStorage.setItem("workout_last_config_v1", JSON.stringify(currentConfig));
+        renderSetupUI();
+      }
+    });
+  }
 
-  // 일시정지 / 재개
-  document.getElementById("btn-pause").addEventListener("click", () => {
-    if (!isRunning) return;
-    const btn = document.getElementById("btn-pause");
-    if (!isPaused) {
-      isPaused = true;
-      stepRemainingMs = Math.max(0, stepEndTime - Date.now());
-      window.speechSynthesis.cancel();
-      btn.textContent = "▶ 재개";
-    } else {
+  const deletePresetBtn = document.getElementById("btn-delete-preset");
+  if (deletePresetBtn) {
+    deletePresetBtn.addEventListener("click", () => {
+      const selectedTitle = document.getElementById("preset-select").value;
+      if (Object.keys(presets).length <= 1) {
+        return alert("최소 1개의 프리셋은 남겨두어야 합니다.");
+      }
+      if (confirm(`'${selectedTitle}' 루틴을 삭제하시겠습니까?`)) {
+        delete presets[selectedTitle];
+        localStorage.setItem("workout_presets_v1", JSON.stringify(presets));
+        const firstKey = Object.keys(presets)[0];
+        currentConfig = JSON.parse(JSON.stringify(presets[firstKey]));
+        updatePresetSelect();
+        renderSetupUI();
+      }
+    });
+  }
+
+  const startWorkoutBtn = document.getElementById("btn-start-workout");
+  if (startWorkoutBtn) startWorkoutBtn.addEventListener("click", startWorkout);
+
+  const pauseBtn = document.getElementById("btn-pause");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (!isRunning) return;
+      if (!isPaused) {
+        isPaused = true;
+        stepRemainingMs = Math.max(0, stepEndTime - Date.now());
+        window.speechSynthesis.cancel();
+        pauseBtn.textContent = "▶ 재개";
+      } else {
+        isPaused = false;
+        stepEndTime = Date.now() + stepRemainingMs;
+        pauseBtn.textContent = "⏸ 일시정지";
+      }
+    });
+  }
+
+  const prevBtn = document.getElementById("btn-prev");
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => {
+      if (!isRunning) return;
       isPaused = false;
-      stepEndTime = Date.now() + stepRemainingMs;
-      btn.textContent = "⏸ 일시정지";
-    }
-  });
+      if (pauseBtn) pauseBtn.textContent = "⏸ 일시정지";
+      startStep(Math.max(0, currentStepIndex - 1));
+    });
+  }
 
-  // 이전 구간
-  document.getElementById("btn-prev").addEventListener("click", () => {
-    if (!isRunning) return;
-    isPaused = false;
-    document.getElementById("btn-pause").textContent = "⏸ 일시정지";
-    startStep(Math.max(0, currentStepIndex - 1));
-  });
+  const nextBtn = document.getElementById("btn-next");
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      if (!isRunning) return;
+      isPaused = false;
+      if (pauseBtn) pauseBtn.textContent = "⏸ 일시정지";
+      startStep(currentStepIndex + 1);
+    });
+  }
 
-  // 다음 구간
-  document.getElementById("btn-next").addEventListener("click", () => {
-    if (!isRunning) return;
-    isPaused = false;
-    document.getElementById("btn-pause").textContent = "⏸ 일시정지";
-    startStep(currentStepIndex + 1);
-  });
+  const stopBtn = document.getElementById("btn-stop");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      isRunning = false;
+      isPaused = false;
+      workerTimer.postMessage("stop");
+      window.speechSynthesis.cancel();
+      releaseWakeLock();
+      document.getElementById("runner-view").classList.remove("active");
+      document.getElementById("setup-view").classList.add("active");
+    });
+  }
 
-  // 종료 (설정 화면으로 복귀)
-  document.getElementById("btn-stop").addEventListener("click", () => {
-    isRunning = false;
-    isPaused = false;
-    workerTimer.postMessage("stop");
-    window.speechSynthesis.cancel();
-    releaseWakeLock();
-    document.getElementById("runner-view").classList.remove("active");
-    document.getElementById("setup-view").classList.add("active");
-  });
+  // 블랙 스크린 잠금 모드 이벤트 바인딩
+  const lockOverlay = document.getElementById("screen-lock-overlay");
+  const lockBtn = document.getElementById("btn-lock-screen");
+  if (lockBtn && lockOverlay) {
+    lockBtn.addEventListener("click", () => {
+      lockOverlay.style.display = "flex";
+    });
+  }
 
-  // 화면 다시 켜졌을 때 WakeLock 재요청
+  // 자물쇠 아이콘 더블 탭 해제 로직
+  let lastUnlockTap = 0;
+  const unlockBtn = document.getElementById("lock-unlock-btn");
+  if (unlockBtn && lockOverlay) {
+    unlockBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastUnlockTap < 350) {
+        lockOverlay.style.display = "none";
+      }
+      lastUnlockTap = now;
+    });
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && isRunning) {
       startSilentAudioAndWakeLock();
@@ -609,7 +674,6 @@ function bindEvents() {
   });
 }
 
-// 시간 포맷 함수 (MM:SS)
 function formatTime(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;

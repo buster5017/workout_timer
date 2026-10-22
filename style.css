@@ -306,18 +306,26 @@ body {
 
 /* ================= 타이머 실행 화면 (핵심 블록 UI) ================= */
 #runner-view {
+  width: 100vw;
   height: 100vh;
+  box-sizing: border-box;
   overflow: hidden;
   background: #09090b;
   padding: 12px;
-  gap: 12px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+#runner-view.active {
+  display: flex;
 }
 
 .runner-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 8px;
+  padding: 4px 6px;
+  flex-shrink: 0;
 }
 
 .runner-title {
@@ -335,55 +343,54 @@ body {
   font-weight: 700;
 }
 
-/* 메인 타이머 블록 (현재 색상 바닥 + 왼쪽->오른쪽 다음 색상 레이어) */
+/* 메인 타이머 블록 */
 .timer-block {
   position: relative;
   flex: 1;
   width: 100%;
-  border-radius: 24px;
+  min-height: 0;
+  border-radius: 20px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12), 0 10px 30px rgba(0,0,0,0.5);
-  background-color: #2563eb; /* 현재 구간 색상 (JS에서 제어) */
+  background-color: #2563eb;
 }
 
-/* 왼쪽에서 오른쪽으로 차오르는 다음 구간 색상 레이어 */
 .timer-next-fill {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
   width: 100%;
-  background-color: #dc2626; /* 다음 구간 색상 (JS에서 제어) */
+  background-color: #dc2626;
   transform-origin: left center;
-  transform: scaleX(0); /* 0 -> 1 로 GPU 가속 확대 */
+  transform: scaleX(0);
   z-index: 1;
   border-right: 3px solid rgba(255, 255, 255, 0.75);
   will-change: transform;
 }
 
-/* 정중앙 고정 타이머 텍스트 레이어 */
 .timer-center-content {
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 20px;
+  padding: 10px;
   width: 100%;
 }
 
 .current-name {
-  font-size: clamp(2rem, 7vw, 3.8rem);
+  font-size: clamp(1.8rem, 6vw, 3.2rem);
   font-weight: 900;
   color: #ffffff;
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.75), 0 1px 3px rgba(0, 0, 0, 0.9);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   word-break: keep-all;
 }
 
 .current-time {
-  font-size: clamp(4.8rem, 20vw, 9.5rem);
+  font-size: clamp(4rem, 16vw, 8.5rem);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
@@ -394,36 +401,37 @@ body {
 
 .next-preview {
   display: inline-block;
-  margin-top: 18px;
+  margin-top: 10px;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
   color: #f4f4f5;
-  padding: 8px 18px;
+  padding: 6px 14px;
   border-radius: 999px;
-  font-size: clamp(0.95rem, 3.5vw, 1.3rem);
+  font-size: clamp(0.85rem, 3vw, 1.1rem);
   font-weight: 700;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 /* 하단 컨트롤 바 */
 .runner-footer {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .overall-progress-box {
   background: #18181b;
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
 }
 
 .overall-text {
   display: flex;
   justify-content: space-between;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #a1a1aa;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .overall-text strong {
@@ -433,7 +441,7 @@ body {
 
 .overall-bar-bg {
   width: 100%;
-  height: 8px;
+  height: 6px;
   background: #27272a;
   border-radius: 999px;
   overflow: hidden;
@@ -449,19 +457,27 @@ body {
 .control-buttons {
   display: grid;
   grid-template-columns: 1fr 1.4fr 1fr 0.9fr;
-  gap: 8px;
+  gap: 6px;
 }
 
 .btn-ctrl {
   background: #27272a;
   color: #fff;
   border: none;
-  padding: 14px 8px;
-  border-radius: 12px;
-  font-size: 0.95rem;
+  padding: 12px 6px;
+  border-radius: 10px;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
 }
 
 .btn-ctrl.play-pause { background: #3b82f6; }
 .btn-ctrl.stop { background: #dc2626; }
+
+/* 볼륨 조절 바 스타일 보완 */
+.volume-control-box input[type="range"] {
+  height: 6px;
+  background: #27272a;
+  border-radius: 999px;
+  outline: none;
+}
