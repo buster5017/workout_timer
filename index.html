@@ -91,10 +91,7 @@
     <!-- 상단 진행 메타 정보 -->
     <header class="runner-header">
       <div id="runner-workout-title" class="runner-title">자전거 케이던스 훈련</div>
-      <div style="display: flex; gap: 6px; align-items: center;">
-        <button id="btn-lock-screen" class="btn-sub" style="background:#27272a; padding: 6px 10px;" title="블랙 스크린 잠금">🌙 잠금</button>
-        <div id="runner-phase-badge" class="runner-badge">준비 (1 / 26)</div>
-      </div>
+      <div id="runner-phase-badge" class="runner-badge">준비 (1 / 26)</div>
     </header>
 
     <!-- 중앙 메인 컬러 오버랩 타이머 블록 -->
@@ -122,12 +119,6 @@
         </div>
       </div>
 
-      <!-- 운동 중 실시간 볼륨 조절 바 -->
-      <div class="volume-control-box" style="display: flex; align-items: center; gap: 8px; background: #18181b; padding: 6px 12px; border-radius: 8px;">
-        <span style="font-size: 0.8rem; color: #a1a1aa;">🔊 음량</span>
-        <input type="range" id="master-volume" min="0" max="1" step="0.05" value="0.8" style="flex: 1; accent-color: #3b82f6; cursor: pointer;">
-      </div>
-
       <div class="control-buttons">
         <button id="btn-prev" class="btn-ctrl" title="이전 구간">⏮ 이전</button>
         <button id="btn-pause" class="btn-ctrl play-pause">⏸ 일시정지</button>
@@ -135,16 +126,6 @@
         <button id="btn-stop" class="btn-ctrl stop" title="운동 종료">⏹ 종료</button>
       </div>
     </footer>
-  </div>
-
-  <!-- 블랙 스크린 잠금 오버레이 모달 -->
-  <div id="screen-lock-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000000; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; gap: 16px;">
-    <div id="lock-unlock-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; cursor: pointer; user-select: none;">
-      🔒
-    </div>
-    <div style="color: #52525b; font-size: 0.85rem; text-align: center;">
-      자물쇠 아이콘을 <strong>빠르게 두 번</strong> 터치하면 해제됩니다
-    </div>
   </div>
 
   <script src="app.js"></script>
