@@ -1,0 +1,33 @@
+name: Sync Code to Google Drive
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # html, js, css를 하나의 텍스트 파일로 합치기
+      - name: Combine Source Code
+        run: |
+          echo "=== 1. INDEX.HTML ===" > timer_source.txt
+          cat index.html >> timer_source.txt 2>/dev/null || true
+          echo -e "\n\n=== 2. APP.JS ===" >> timer_source.txt
+          cat app.js >> timer_source.txt 2>/dev/null || true
+          echo -e "\n\n=== 3. STYLE.CSS ===" >> timer_source.txt
+          cat style.css >> timer_source.txt 2>/dev/null || true
+
+      # Google Drive로 업로드
+      - name: Upload to Google Drive
+        uses: adityak74/google-drive-upload-git-action@v0.3
+        with:
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          filename: "timer_source.txt"
+          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+          name: "갤럭시타이머_통합코드.txt"
+          overwrite: "true"
